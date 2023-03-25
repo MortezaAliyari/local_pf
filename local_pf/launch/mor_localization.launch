@@ -1,0 +1,69 @@
+<launch>
+
+
+    <?ignore ------------------------------------------------------ Start Initializing Parameters -------------------------------------- ?>
+
+    <arg name="map_file" default="$(find turtlebot3_navigation)/maps/map.yaml"/>
+    <arg name="open_rviz" default="true"/>
+    <arg name="model" default="$(env TURTLEBOT3_MODEL)" doc="model type [burger, waffle, waffle_pi]"/>
+    <arg name="x_pos" default="-2.0"/>
+    <arg name="y_pos" default="-0.5"/>
+    <arg name="z_pos" default="0.0"/>
+    <?ignore--------------------------------------------------------End of Initialization Parameters ---------------------------------------- ?>
+
+    <?ignore-------------------------------------------------------- RVIZ start ----------------------------------------?>
+      <!-- rviz -->
+      <group if="$(arg open_rviz)">
+        <node pkg="rviz" type="rviz" name="rviz" required="true"
+              args="-d $(find mor_localization)/rviz/mor_localization.rviz"/>
+      </group>
+    <?ignore-------------------------------------------------------- RVIZ end ----------------------------------------?>
+
+    <?ignore-------------------------------------------------------- Gazebo start ---------------------------------------
+
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+      <arg name="world_name" value="$(find turtlebot3_gazebo)/worlds/turtlebot3_world.world"/>
+      <arg name="paused" value="false"/>
+      <arg name="use_sim_time" value="true"/>
+      <arg name="gui" value="true"/>
+      <arg name="headless" value="false"/>
+      <arg name="debug" value="false"/>
+    </include>
+
+    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find turtlebot3_description)/urdf/turtlebot3_$(arg model).urdf.xacro" />
+
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_urdf"  args="-urdf -model turtlebot3_$(arg model) -x $(arg x_pos) -y $(arg y_pos) -z $(arg z_pos) -param robot_description" />
+
+    ------------------------------------------------------- Gazebo End  ----------------------------------------?>
+
+
+    <?ignore-------------------------------------------------------- Start Transformers ----------------------------------------?>
+
+
+    <node pkg="tf" type="static_transform_publisher" name="map_to_odom" args="0 0 0 0 0 0 map odom 10" />
+
+    <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_base_link" args="0 0 0 0 0 0 base_footprint base_link 10" />
+    <node pkg="tf" type="static_transform_publisher" name="base_link_to_base_scan" args="-0.03 0 0 0 0 0 base_link base_scan 10" />
+    <?ignore-------------------------------------------------------- End of Transformers ----------------------------------------?>
+
+    <?ignore-------------------------------------------------------- Start nodes ----------------------------------------?>
+
+    <?ignore <node pkg="mor_createmap" type="pubmap" name="pubmap" output="screen"/> ?>
+    <node pkg="mor_localization" type="mainlocal" name="mainlocal" output="screen"/>
+
+    <!-- Map server -->
+    <node pkg="map_server" name="map_server" type="map_server" args="$(arg map_file)"/>
+
+    <node name="clear_terminal" pkg="mor_localization" type="clear_terminal.sh" output="screen"/>
+
+    <?ignore-------------------------------------------------------- End of nodes ----------------------------------------?>
+
+    <?ignore-------------------------------------------------------- Start launch files ----------------------------------------?>
+
+
+
+    <?ignore-------------------------------------------------------- End launch files ----------------------------------------?>
+
+
+
+</launch>
