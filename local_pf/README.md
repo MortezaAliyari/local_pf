@@ -5,7 +5,7 @@ In this repo, i localized the robot position on 2d map as based on particle filt
 If you like the project give me a star! :star: 
 
 You can see the video: &nbsp;&nbsp;
-[![website](./img/youtube-dark.svg)](https://www.youtube.com/channel/UCyRBig4xgAdaRdIz14Xymrg)
+[![website](https://github.com/MortezaAliyari/Create-2D-map-Lidar-C-/blob/main/img/youtube-dark.svg)](https://www.youtube.com/channel/UCyRBig4xgAdaRdIz14Xymrg)
 &nbsp;&nbsp;
 ---
 
@@ -18,4 +18,4 @@ You can see the video: &nbsp;&nbsp;
 - Cmake 3.20
 ---
 100 particles distribute around initial point 
-![alt text](https://github.com/MortezaAliyari/local_pf/blob/publish_frame/imag/particles_normalDist.png)
+![Particles on map](https://github.com/MortezaAliyari/local_pf/blob/publish_frame/imag/particles_normalDist.png)
