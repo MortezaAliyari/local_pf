@@ -1,5 +1,10 @@
 #include "localization.h"
-#include<memory.h>
+#include <memory.h>
+#include <tf2_ros/static_transform_broadcaster.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <cstdio>
+#include <tf2/LinearMath/Quaternion.h>
+
 using namespace robot;
 
 localization::localization()
@@ -23,10 +28,10 @@ localization::~localization(){
   EstimPos_th.join();
 }
 void localization::map_cb(const nav_msgs::OccupancyGrid::ConstPtr& map_msg){
-  cout<<"map recieved data!"<<endl;
+  //cout<<"map recieved data!"<<endl;
   timespec end;
   clock_gettime(CLOCK_MONOTONIC_RAW, &end);
-  std::cout<<"timelapsed in map callback function is:"<<(1.0/time_elapsed(this->start_mcb,end))<<" Hz"<<std::endl;
+  //std:://cout<<"timelapsed in map callback function is:"<<(1.0/time_elapsed(this->start_mcb,end))<<" Hz"<<std::endl;
 
 
   try {
@@ -54,13 +59,13 @@ void localization::map_cb(const nav_msgs::OccupancyGrid::ConstPtr& map_msg){
       map_ready=true;
 
     }
-    cout<<"release the lock!!"<<endl;
-    cout<<map_.info.origin.position.x<<" , "<<map_.info.origin.position.y<<" , "<<map_.info.width<<" , "<<map_.info.height<<" , "<<map_.info.resolution<<endl;
+    //cout<<"release the lock!!"<<endl;
+    //cout<<map_.info.origin.position.x<<" , "<<map_.info.origin.position.y<<" , "<<map_.info.width<<" , "<<map_.info.height<<" , "<<map_.info.resolution<<endl;
 
        map_cv.notify_one();
   }
   catch (std::exception& e) {
-    cout << "Exception caught! map freq is decreased!" << endl;
+    //cout << "Exception caught! map freq is decreased!" << endl;
   }
   //clock_gettime(CLOCK_MONOTONIC_RAW, &this->start_mcb);
 }
@@ -75,41 +80,41 @@ bool localization::checkcell(geometry_msgs::Pose &pnew){
   // in this function the feasibility of robot position in this map will check
       if (pnew.position.x<0 ||  pnew.position.x>map_.info.width || pnew.position.y<0 || pnew.position.y>map_.info.height)
      {
-    cout<<"checkcell failed!"<<endl;
+    //cout<<"checkcell failed!"<<endl;
     return false;
   }
 
     int index=findmapindex(pnew);
 // below condition means that particle shouldbe inside the known area of map!!
     if(map_.data.at(index)==100 || map_.data.at(index)==-1){
-//      cout<<"p5"<<endl;
+//      //cout<<"p5"<<endl;
 
       return false;
     }
     else{
-//      cout<<"p6"<<endl;
+//      //cout<<"p6"<<endl;
       return true;
     }
 
   }
 // pose2d0 is real world intial position of robot, n is number of particles
-geometry_msgs::PoseArray  localization::newparticles(const geometry_msgs::Pose2D &pose2d0, int n=100){
+geometry_msgs::PoseArray  localization::newparticles(const geometry_msgs::Pose2D &pose2d0, int n=10){
     createmap::mapposition rm_init;
     geometry_msgs::PoseArray partic;
     geometry_msgs::Pose pnew;
     rm_init=to_map(pose2d0.x,pose2d0.y,map_.info.origin.position.x,map_.info.origin.position.y,map_.info.width,map_.info.height,map_.info.resolution);
     normal_distribution<double> nidx(rm_init.mx,10);
     normal_distribution<double> nidy(rm_init.my,10);
-    normal_distribution<double> nidtheta(rm_init.mtheta,3.14);
+    normal_distribution<double> nidtheta(rm_init.mtheta,1);
 
     unique_ptr<float> theta=make_unique<float>();
 
-    cout<<"rm_init.mx: "<<rm_init.mx;
+    //cout<<"rm_init.mx: "<<rm_init.mx;
     for (int i=0;i<n;++i) {
       do{
         pnew.position.x=int(nidx(mt))*1;
         pnew.position.y=int(nidy(mt))*1;
-        *theta=rm_init.mtheta+nidtheta(mt);
+        *theta=nidtheta(mt);
         pnew.orientation.w=createmap::euler_quaternion(*theta,0,0).w;
         pnew.orientation.x=createmap::euler_quaternion(*theta,0,0).x;
         pnew.orientation.y=createmap::euler_quaternion(*theta,0,0).y;
@@ -128,8 +133,20 @@ double localization:: calculate_distance(T x1, T y1, T x2, T y2) {
 
 
 void localization::pub_particles(geometry_msgs::PoseArray &particlesongridmap){
-
+  /* In this function the particles will publish on rviz screen.
+   * Also by uncommenting the bolow lines its possible to see
+   * the each particle expected scan on rviz by broadcasting the the particle frame,"expectescan", as child frame respect to "map"
+   * as parent frame.
+   */
+  /*///Parametes
+   * particleonworld: positions of all parties on real world frame
+   * k: is particle number to be chose to visualize the expectec scan.
+   * particleonworld2: position of  particle number k.
+   * static_transformStamped: broadcast particle frame
+   */
+  int k=3;
   geometry_msgs::PoseArray particleonworld=particlesongridmap;
+  geometry_msgs::PoseArray particleonworld2;
   createmap::worldposition wp;
   for(int i=0;i<(int)particlesongridmap.poses.size();++i){
     wp= createmap::to_world(particlesongridmap.poses.at(i).position.x,
@@ -138,31 +155,50 @@ void localization::pub_particles(geometry_msgs::PoseArray &particlesongridmap){
     particleonworld.poses.at(i).position.x=wp.wx;
     particleonworld.poses.at(i).position.y=wp.wy;
   }
+particleonworld2.poses.push_back(particleonworld.poses.at(k));
+//  int* j=new int[0];
+//  for (auto & i:particleonworld2.poses) {
+//    (*j)++;
+//    cout<<"particle number is :"<<*j<<" : "<<i.position.x<<" , "<<i.position.y<<" , qw: "<<i.orientation.w<<endl;
+//  }
 
-  int* j=new int[0];
-  for (auto & i:particleonworld.poses) {
-    (*j)++;
-    cout<<*j<<" : "<<i.position.x<<" , "<<i.position.y<<"qw: "<<i.orientation.w<<endl;
-  }
+  particleonworld2.header.stamp=ros::Time::now();
+  particleonworld2.header.frame_id="map";
 
-  particleonworld.header.stamp=ros::Time::now();
-  particleonworld.header.frame_id="map";
-  particles_pub.publish(particleonworld);
-  delete[] j;
+
+  particles_pub.publish(particleonworld2);
+  static tf2_ros::StaticTransformBroadcaster static_broadcaster;
+  geometry_msgs::TransformStamped static_transformStamped;
+
+  static_transformStamped.header.stamp = ros::Time::now();
+  static_transformStamped.header.frame_id = "map";
+  static_transformStamped.child_frame_id = "expectedscan";
+  static_transformStamped.transform.translation.x = particleonworld2.poses.at(0).position.x;
+  static_transformStamped.transform.translation.y = particleonworld2.poses.at(0).position.y;
+  static_transformStamped.transform.translation.z = 0;
+
+  static_transformStamped.transform.rotation.x = particleonworld2.poses.at(0).orientation.x;
+  static_transformStamped.transform.rotation.y = particleonworld2.poses.at(0).orientation.y;
+  static_transformStamped.transform.rotation.z = particleonworld2.poses.at(0).orientation.z;
+  static_transformStamped.transform.rotation.w = particleonworld2.poses.at(0).orientation.w;
+  static_broadcaster.sendTransform(static_transformStamped);
+//  delete[] j;
 
 };
 
 sensor_msgs::LaserScan localization::art_lidar(geometry_msgs::PoseArray& particle,sensor_msgs::LaserScan& lidar_msg,nav_msgs::OccupancyGrid& map_th){
+
   unique_ptr<sensor_msgs::LaserScan> lidmsg=make_unique<sensor_msgs::LaserScan>();
-  unique_ptr<uint16_t> n=make_unique<uint16_t>(1);
-  shared_ptr<int> x0=make_shared<int>(),y0=make_shared<int>(),
-                  xt=make_shared<int>(),yt=make_shared<int>();
-  unique_ptr<double> yaw=make_unique<double>(),
-                     pitch=make_unique<double>(0),
+  unique_ptr<int> n=make_unique<int>(0);
+  unique_ptr<vector<int>> count=make_unique<vector<int>>(0);
+
+  unique_ptr<double> pitch=make_unique<double>(0),
                      roll=make_unique<double>(0);
 
- //sensor_msgs::LaserScan exp_scan;
+
   unique_ptr<tf::Quaternion> quat=make_unique<tf::Quaternion>();
+  geometry_msgs::Pose2D particlepose2d;
+
 
   (*lidmsg).angle_min=      lidar_msg.angle_min;
   (*lidmsg).angle_max=      lidar_msg.angle_max;
@@ -170,42 +206,70 @@ sensor_msgs::LaserScan localization::art_lidar(geometry_msgs::PoseArray& particl
   (*lidmsg).range_min=      lidar_msg.range_min;
   (*lidmsg).range_max=      lidar_msg.range_max;
   //(*lidmsg).ranges=lidar_msg.ranges;
-  //cout<<"before While loop!"<<endl;
-  *x0=particle.poses.at(0).position.x;
-  *y0=particle.poses.at(0).position.y;
-  (*quat).setX(particle.poses.at(0).orientation.x);
-  (*quat).setY(particle.poses.at(0).orientation.y);
-  (*quat).setZ(particle.poses.at(0).orientation.z);
-  (*quat).setW(particle.poses.at(0).orientation.w);
-  tf::Matrix3x3(*quat).getRPY(*roll, *pitch, *yaw);
-
-  while(*n<=lidar_msg.ranges.size()){
+  ////cout<<"before While loop!"<<endl;
+  int k=3;
+  particlepose2d.x=particle.poses.at(k).position.x;
+  particlepose2d.y=particle.poses.at(k).position.y;
+  (*quat).setX(particle.poses.at(k).orientation.x);
+  (*quat).setY(particle.poses.at(k).orientation.y);
+  (*quat).setZ(particle.poses.at(k).orientation.z);
+  (*quat).setW(particle.poses.at(k).orientation.w);
+  tf::Matrix3x3(*quat).getRPY(*roll, *pitch, particlepose2d.theta);
+//particlepose2d.theta=-particlepose2d.theta*0;
+  cout<<"x: "<<particle.poses.at(k).orientation.x<<" , y: "<<particle.poses.at(k).orientation.y<<" , z: "<<particle.poses.at(k).orientation.z<<" , w: "<<particle.poses.at(k).orientation.w<<" , par yaw: "<<particlepose2d.theta*(180/M_PI)<<" , robot yaw: "<<pose2d.theta*(180/M_PI)<<endl;
+  float dist=((*lidmsg).range_max)/map_.info.resolution;
+  while(*n<(int)lidar_msg.ranges.size()){
 //    unique_ptr<type_ii> cellsonray=make_unique<type_ii>();
-    std::vector<type_ii> cellsonray;
 
-    *xt=*x0 + (*lidmsg).range_max*cos((*n)*(*yaw));
-    *yt=*y0 + (*lidmsg).range_max*sin((*n)*(*yaw));
+    geometry_msgs::Point xyt=createmap::lidarpoint_to_worldframe(*n,dist,(*lidmsg).angle_increment,particlepose2d);
 
-    cellsonray=bresenham(*x0,*y0,*xt,*yt);
+    //cout<<"x0:"<<particlepose2d.x<<" , y0:"<<particlepose2d.y<<" , xt:"<<xyt.x<<" , yt:"<<xyt.y<<endl;
+
+    std::vector<type_ii> cellsonray=bresenham(particlepose2d.x,particlepose2d.y,xyt.x,xyt.y);
+    int i=0;
+    geometry_msgs::Pose* pnew=new geometry_msgs::Pose;
+    geometry_msgs::Pose* old=new geometry_msgs::Pose;
     for (auto& c:cellsonray) {
-      geometry_msgs::Pose* pnew=new geometry_msgs::Pose;
+
+      //cout<<"ray number is :"<<*n<<" , cellsonray.size() is : "<<cellsonray.size()<<" , cell number is : "<<i<<" , c.first is : "<<c.first<<" , c.second is: "<<c.second<<endl;
+      i++;
+//      if(*n>77){
+//        (*lidmsg).ranges.push_back(1.0);
+////        cout<<"inside cindition!"<<endl;
+//        (*count).push_back( (*n)++);
+
+//        break;
+//      }
+//      cout<<"outside cindition!"<<endl;
+
       (*pnew).position.x=c.first;
       (*pnew).position.y=c.second;
       int index=findmapindex(*pnew);
-
+       //cout<<"index: " <<index<<", map_.data.at(index): "<<map_.data.at(index)<<endl;
       if(map_.data.at(index)==100 || map_.data.at(index)==-1){
-        (*lidmsg).ranges.push_back(calculate_distance((int)*x0,(int)*y0,(int)(*pnew).position.x,(int)(*pnew).position.y)) ;
+        (*lidmsg).ranges.push_back(calculate_distance((int)particlepose2d.x,(int)particlepose2d.y,(int)(((*old).position.x+(*pnew).position.x)/2.0),(int)(((*old).position.y+(*pnew).position.y)/2.0))*map_.info.resolution);
+        cout<<"n: "<<*n<<" , cell detected 1"<<endl;
+        (*count).push_back( (*n)++);
         break;
       }
-      if(c==*(cellsonray.end())){
-        (*lidmsg).ranges.push_back((*lidmsg).range_max) ;
+      if(i==(int)cellsonray.size()){
+        cout<<"range max: "<<(*lidmsg).range_max<<endl;
+        (*lidmsg).ranges.push_back((*lidmsg).range_max);
+        cout<<"n: "<<*n<<" , cell detected 2"<<endl;
+        (*count).push_back( (*n)++);
         break;
       }
+      (*old).position.x=c.first;
+      (*old).position.y=c.second;
     }
-    (*n)++;
+    delete pnew;
+    delete old;
   }
-  //cout<<"after While loop!"<<endl;
-  (*lidmsg).header.frame_id="base_scan";
+  cout<<"count size:"<<(*count).size()<<endl;
+
+  //cout<<"after While loop! n is :"<<*n<<endl;
+  (*lidmsg).header.frame_id="expectedscan";
+
   return (*lidmsg);
 }
 
@@ -222,7 +286,7 @@ void localization::estipose(){
 //  pose2d1.x=-2;
 //  pose2d1.y=-0.5;
 //  pose2d1.theta=0;
-  cout<<COLOR_GREEN<<"x: "<<pose2d.x<<" , "<<"y: "<<pose2d.y<<COLOR_NORMAL<<endl;
+  //cout<<COLOR_GREEN<<"x: "<<pose2d.x<<" , "<<"y: "<<pose2d.y<<COLOR_NORMAL<<endl;
   {
     std::unique_lock<std::mutex> map_lock(map_mut);
     map_cv.wait(map_lock,[this](){return this->map_ready;});
@@ -249,17 +313,18 @@ void localization::estipose(){
     laser_counter_=laser_counter;
     createmap::lidar_ready=false;
   }
-  cout<<"before creating particles"<<endl;
+  //cout<<"before creating particles"<<endl;
   np=newparticles(pose2d);
-  cout<<"before publishing particles"<<endl;
+  //cout<<"before publishing particles"<<endl;
   // in order to publish the point cloud, the transform from grid map to world is necessary
-  pub_particles(np);
-  cout<<"after publishing particles"<<endl;
-  ros::Rate rate(10); // 10 Hz
+  sensor_msgs::LaserScan exp_sc=art_lidar(np,lidar_msg,map_th);
+  //cout<<"after publishing particles"<<endl;
+  ros::Rate rate(1); // 10 Hz
   while (ros::ok())
   {
-
-      expectedscanner_Pub.publish(art_lidar(np,lidar_msg,map_th));
+      pub_particles(np);
+      expectedscanner_Pub.publish(exp_sc);
+      //cout<<"particle 0: "<<np.poses.at(0).position.x<<" , "<<np.poses.at(0).position.y<<endl;
 
       rate.sleep();
   }
