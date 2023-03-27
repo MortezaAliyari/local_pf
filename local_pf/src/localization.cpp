@@ -98,16 +98,16 @@ bool localization::checkcell(geometry_msgs::Pose &pnew){
 
   }
 // pose2d0 is real world intial position of robot, n is number of particles
-geometry_msgs::PoseArray  localization::newparticles(const geometry_msgs::Pose2D &pose2d0, int n=10){
+geometry_msgs::PoseArray  localization::newparticles(const geometry_msgs::Pose2D &pose2d0, int n=100){
     createmap::mapposition rm_init;
     geometry_msgs::PoseArray partic;
     geometry_msgs::Pose pnew;
     rm_init=to_map(pose2d0.x,pose2d0.y,map_.info.origin.position.x,map_.info.origin.position.y,map_.info.width,map_.info.height,map_.info.resolution);
-    normal_distribution<double> nidx(rm_init.mx,10);
+    normal_distribution<double> nidx(rm_init.mx,50);
     normal_distribution<double> nidy(rm_init.my,10);
-    normal_distribution<double> nidtheta(rm_init.mtheta,1);
+    normal_distribution<double> nidtheta(rm_init.mtheta,6);
 
-    unique_ptr<float> theta=make_unique<float>();
+    unique_ptr<double> theta=make_unique<double>();
 
     //cout<<"rm_init.mx: "<<rm_init.mx;
     for (int i=0;i<n;++i) {
@@ -119,6 +119,16 @@ geometry_msgs::PoseArray  localization::newparticles(const geometry_msgs::Pose2D
         pnew.orientation.x=createmap::euler_quaternion(*theta,0,0).x;
         pnew.orientation.y=createmap::euler_quaternion(*theta,0,0).y;
         pnew.orientation.z=createmap::euler_quaternion(*theta,0,0).z;
+//        if(i==0){
+//          pnew.position.x=rm_init.mx;
+//          pnew.position.y=rm_init.my;
+//          *theta=rm_init.mtheta;
+//          pnew.orientation.w=createmap::euler_quaternion(*theta,0,0).w;
+//          pnew.orientation.x=createmap::euler_quaternion(*theta,0,0).x;
+//          pnew.orientation.y=createmap::euler_quaternion(*theta,0,0).y;
+//          pnew.orientation.z=createmap::euler_quaternion(*theta,0,0).z;
+
+//        }
 
       }while(!checkcell(pnew));
       partic.poses.push_back(pnew);
@@ -138,13 +148,42 @@ void localization::pub_particles(geometry_msgs::PoseArray &particlesongridmap){
    * the each particle expected scan on rviz by broadcasting the the particle frame,"expectescan", as child frame respect to "map"
    * as parent frame.
    */
-  /*///Parametes
+  /*Parameters
    * particleonworld: positions of all parties on real world frame
-   * k: is particle number to be chose to visualize the expectec scan.
-   * particleonworld2: position of  particle number k.
+
+   */
+  geometry_msgs::PoseArray particleonworld=particlesongridmap;
+  createmap::worldposition wp;
+  for(int i=0;i<(int)particlesongridmap.poses.size();++i){
+    wp= createmap::to_world(particlesongridmap.poses.at(i).position.x,
+                            particlesongridmap.poses.at(i).position.y,
+                            origin_wx,origin_wy,map_.info.resolution);
+    particleonworld.poses.at(i).position.x=wp.wx;
+    particleonworld.poses.at(i).position.y=wp.wy;
+  }
+//  int* j=new int[0];
+//  for (auto & i:particleonworld2.poses) {
+//    (*j)++;
+//    cout<<"particle number is :"<<*j<<" : "<<i.position.x<<" , "<<i.position.y<<" , qw: "<<i.orientation.w<<endl;
+//  }
+// delete[] j;
+  particleonworld.header.stamp=ros::Time::now();
+  particleonworld.header.frame_id="map";
+  particles_pub.publish(particleonworld);
+};
+
+void localization::pub_bestparticle(geometry_msgs::PoseArray &particlesongridmap,const int& particlenumber=0){
+  /* In this function the particles will publish on rviz screen.
+   * Also by uncommenting the bolow lines its possible to see
+   * the each particle expected scan on rviz by broadcasting the the particle frame,"expectescan", as child frame respect to "map"
+   * as parent frame.
+   */
+  /*Parametes
+   * particleonworld: positions of all parties on real world frame
+   * particlenumber: is particle number to be chose to visualize the expectec scan.
+   * particleonworld2: position of  particle number .
    * static_transformStamped: broadcast particle frame
    */
-  int k=3;
   geometry_msgs::PoseArray particleonworld=particlesongridmap;
   geometry_msgs::PoseArray particleonworld2;
   createmap::worldposition wp;
@@ -155,18 +194,19 @@ void localization::pub_particles(geometry_msgs::PoseArray &particlesongridmap){
     particleonworld.poses.at(i).position.x=wp.wx;
     particleonworld.poses.at(i).position.y=wp.wy;
   }
-particleonworld2.poses.push_back(particleonworld.poses.at(k));
+  particleonworld2.poses.push_back(particleonworld.poses.at(particlenumber));
 //  int* j=new int[0];
 //  for (auto & i:particleonworld2.poses) {
 //    (*j)++;
 //    cout<<"particle number is :"<<*j<<" : "<<i.position.x<<" , "<<i.position.y<<" , qw: "<<i.orientation.w<<endl;
 //  }
-
+//  delete[] j;
+  //j=NULL;
   particleonworld2.header.stamp=ros::Time::now();
   particleonworld2.header.frame_id="map";
 
 
-  particles_pub.publish(particleonworld2);
+  bestparticle_pub.publish(particleonworld2);
   static tf2_ros::StaticTransformBroadcaster static_broadcaster;
   geometry_msgs::TransformStamped static_transformStamped;
 
@@ -182,111 +222,120 @@ particleonworld2.poses.push_back(particleonworld.poses.at(k));
   static_transformStamped.transform.rotation.z = particleonworld2.poses.at(0).orientation.z;
   static_transformStamped.transform.rotation.w = particleonworld2.poses.at(0).orientation.w;
   static_broadcaster.sendTransform(static_transformStamped);
-//  delete[] j;
-
 };
+shared_ptr<vector<sensor_msgs::LaserScan>> localization::art_lidar(geometry_msgs::PoseArray& particle,sensor_msgs::LaserScan& lidar_msg,nav_msgs::OccupancyGrid& map_th){
 
-sensor_msgs::LaserScan localization::art_lidar(geometry_msgs::PoseArray& particle,sensor_msgs::LaserScan& lidar_msg,nav_msgs::OccupancyGrid& map_th){
-
+  shared_ptr<vector<sensor_msgs::LaserScan>> expectedscans=make_shared<vector<sensor_msgs::LaserScan>>();
   unique_ptr<sensor_msgs::LaserScan> lidmsg=make_unique<sensor_msgs::LaserScan>();
-  unique_ptr<int> n=make_unique<int>(0);
+  unique_ptr<int> raynumber=make_unique<int>(0),particlenumber=make_unique<int>(0);
   unique_ptr<vector<int>> count=make_unique<vector<int>>(0);
-
   unique_ptr<double> pitch=make_unique<double>(0),
                      roll=make_unique<double>(0);
-
-
+  unique_ptr<float> dist=make_unique<float>(0);
   unique_ptr<tf::Quaternion> quat=make_unique<tf::Quaternion>();
   geometry_msgs::Pose2D particlepose2d;
-
 
   (*lidmsg).angle_min=      lidar_msg.angle_min;
   (*lidmsg).angle_max=      lidar_msg.angle_max;
   (*lidmsg).angle_increment=lidar_msg.angle_increment;
   (*lidmsg).range_min=      lidar_msg.range_min;
   (*lidmsg).range_max=      lidar_msg.range_max;
+  (*lidmsg).header.frame_id="expectedscan";
+  *dist=((*lidmsg).range_max)/map_.info.resolution;
+
   //(*lidmsg).ranges=lidar_msg.ranges;
   ////cout<<"before While loop!"<<endl;
-  int k=3;
-  particlepose2d.x=particle.poses.at(k).position.x;
-  particlepose2d.y=particle.poses.at(k).position.y;
-  (*quat).setX(particle.poses.at(k).orientation.x);
-  (*quat).setY(particle.poses.at(k).orientation.y);
-  (*quat).setZ(particle.poses.at(k).orientation.z);
-  (*quat).setW(particle.poses.at(k).orientation.w);
-  tf::Matrix3x3(*quat).getRPY(*roll, *pitch, particlepose2d.theta);
-//particlepose2d.theta=-particlepose2d.theta*0;
-  cout<<"x: "<<particle.poses.at(k).orientation.x<<" , y: "<<particle.poses.at(k).orientation.y<<" , z: "<<particle.poses.at(k).orientation.z<<" , w: "<<particle.poses.at(k).orientation.w<<" , par yaw: "<<particlepose2d.theta*(180/M_PI)<<" , robot yaw: "<<pose2d.theta*(180/M_PI)<<endl;
-  float dist=((*lidmsg).range_max)/map_.info.resolution;
-  while(*n<(int)lidar_msg.ranges.size()){
-//    unique_ptr<type_ii> cellsonray=make_unique<type_ii>();
 
-    geometry_msgs::Point xyt=createmap::lidarpoint_to_worldframe(*n,dist,(*lidmsg).angle_increment,particlepose2d);
+  while(*particlenumber<(int)particle.poses.size()){
 
-    //cout<<"x0:"<<particlepose2d.x<<" , y0:"<<particlepose2d.y<<" , xt:"<<xyt.x<<" , yt:"<<xyt.y<<endl;
+    particlepose2d.x=particle.poses.at(*particlenumber).position.x;
+    particlepose2d.y=particle.poses.at(*particlenumber).position.y;
+    (*quat).setX(particle.poses.at(*particlenumber).orientation.x);
+    (*quat).setY(particle.poses.at(*particlenumber).orientation.y);
+    (*quat).setZ(particle.poses.at(*particlenumber).orientation.z);
+    (*quat).setW(particle.poses.at(*particlenumber).orientation.w);
+    tf::Matrix3x3(*quat).getRPY(*roll, *pitch, particlepose2d.theta);
+    while(*raynumber<360){
+      geometry_msgs::Point xyt=createmap::lidarpoint_to_worldframe(*raynumber,*dist,(*lidmsg).angle_increment,particlepose2d);
+      std::vector<type_ii> cellsonray=bresenham(particlepose2d.x,particlepose2d.y,xyt.x,xyt.y);
+      unique_ptr<int> cellnumberofray=make_unique<int>(0);
+      geometry_msgs::Pose* pnew=new geometry_msgs::Pose;
+      geometry_msgs::Pose* old=new geometry_msgs::Pose;
+      for (auto& c:cellsonray) {
+        (*pnew).position.x=c.first;
+        (*pnew).position.y=c.second;
+        int index=findmapindex(*pnew);
+        (*cellnumberofray)++;
+        if(map_.data.at(index)==100 || map_.data.at(index)==-1){
+          (*lidmsg).ranges.push_back(calculate_distance((int)particlepose2d.x,(int)particlepose2d.y,(int)(((*old).position.x+(*pnew).position.x)/2.0),(int)(((*old).position.y+(*pnew).position.y)/2.0))*map_.info.resolution);
+//          (*lidmsg).ranges.push_back(calculate_distance((int)particlepose2d.x,(int)particlepose2d.y,(int)(*pnew).position.x,(int)(*pnew).position.y)*map_.info.resolution);
 
-    std::vector<type_ii> cellsonray=bresenham(particlepose2d.x,particlepose2d.y,xyt.x,xyt.y);
-    int i=0;
-    geometry_msgs::Pose* pnew=new geometry_msgs::Pose;
-    geometry_msgs::Pose* old=new geometry_msgs::Pose;
-    for (auto& c:cellsonray) {
-
-      //cout<<"ray number is :"<<*n<<" , cellsonray.size() is : "<<cellsonray.size()<<" , cell number is : "<<i<<" , c.first is : "<<c.first<<" , c.second is: "<<c.second<<endl;
-      i++;
-//      if(*n>77){
-//        (*lidmsg).ranges.push_back(1.0);
-////        cout<<"inside cindition!"<<endl;
-//        (*count).push_back( (*n)++);
-
-//        break;
-//      }
-//      cout<<"outside cindition!"<<endl;
-
-      (*pnew).position.x=c.first;
-      (*pnew).position.y=c.second;
-      int index=findmapindex(*pnew);
-       //cout<<"index: " <<index<<", map_.data.at(index): "<<map_.data.at(index)<<endl;
-      if(map_.data.at(index)==100 || map_.data.at(index)==-1){
-        (*lidmsg).ranges.push_back(calculate_distance((int)particlepose2d.x,(int)particlepose2d.y,(int)(((*old).position.x+(*pnew).position.x)/2.0),(int)(((*old).position.y+(*pnew).position.y)/2.0))*map_.info.resolution);
-        cout<<"n: "<<*n<<" , cell detected 1"<<endl;
-        (*count).push_back( (*n)++);
-        break;
+          (*count).push_back( (*raynumber)++);
+          break;
+        }
+        if((*cellnumberofray)==(int)cellsonray.size()){
+          (*lidmsg).ranges.push_back((*lidmsg).range_max);
+          (*count).push_back( (*raynumber)++);
+          break;
+        }
+        (*old).position.x=c.first;
+        (*old).position.y=c.second;
       }
-      if(i==(int)cellsonray.size()){
-        cout<<"range max: "<<(*lidmsg).range_max<<endl;
-        (*lidmsg).ranges.push_back((*lidmsg).range_max);
-        cout<<"n: "<<*n<<" , cell detected 2"<<endl;
-        (*count).push_back( (*n)++);
-        break;
-      }
-      (*old).position.x=c.first;
-      (*old).position.y=c.second;
+      delete pnew;
+      pnew=NULL;
+      delete old;
+      old=NULL;
+
     }
-    delete pnew;
-    delete old;
+    *raynumber=0;
+    (*expectedscans).push_back(*lidmsg);
+    (*lidmsg).ranges.clear();
+    (*particlenumber)++;
   }
-  cout<<"count size:"<<(*count).size()<<endl;
 
-  //cout<<"after While loop! n is :"<<*n<<endl;
-  (*lidmsg).header.frame_id="expectedscan";
+  return (expectedscans);
+}
 
-  return (*lidmsg);
+shared_ptr<vector<double>> localization::normalizedlikelihood(shared_ptr<vector<sensor_msgs::LaserScan>> expectedscans,sensor_msgs::LaserScan & measurement){
+  shared_ptr<vector<sensor_msgs::LaserScan>> exp_scan=make_shared<vector<sensor_msgs::LaserScan>>();
+  (*exp_scan)=*(expectedscans);
+  shared_ptr<float> R=make_shared<float>(1);// measurement noise covariance
+  shared_ptr<double> vhatsum=make_shared<double>(),qsum=make_shared<double>();
+  shared_ptr<vector<double>> q=   make_shared<vector<double>>();
+  shared_ptr<vector<double>> vhat=make_shared<vector<double>>();
+  //create error vector
+  for (int i=0;i<(int)exp_scan->size();++i) {
+    std::transform((*exp_scan).at(i).ranges.begin(), (*exp_scan).at(i).ranges.end(),measurement.ranges.begin(),(*exp_scan).at(i).ranges.begin(), [](double a, double b) { return abs(a - b); });
+    (*vhat).push_back(std::accumulate((*exp_scan).at(i).ranges.begin(), (*exp_scan).at(i).ranges.end(), 0.0));
+    cout<<(*vhat).at(i)<<endl;
+  }
+cout<<"after loop"<<endl;
+//@ normalized the error vector and calculated likelihood for each particle
+//  *vhatsum=std::accumulate((*vhat).begin(), (*vhat).end(), 0.0);
+//  for (int i=0;i<(int)exp_scan->size();++i) {
+//    (*vhat).at(i)=(*vhat).at(i)/(*vhatsum);
+
+//    cout<<"vhatsum: "<<(*vhatsum)<<", vhat: "<<(*vhat).at(i)<<" , "<<pow(2.71828,(-pow((*vhat).at(i), 2) / (2.0 * (*R))))<<endl;
+//    (*q).push_back(100*((1 / (sqrt((*R))* sqrt(2.0*M_PI))) * pow(2.71828,-pow((*vhat).at(i), 2) / (2.0 * (*R)))));
+//  }
+
+//@ normalized likelihood for each particle
+//  *qsum=std::accumulate((*q).begin(), (*q).end(), 0.0);
+//  for (int i=0;i<(int)(*q).size();++i) {
+//    (*q).at(i)=(*q).at(i)/(*qsum);
+//  }
+
+  return vhat;
 }
 
 void localization::estipose(){
   nav_msgs::OccupancyGrid map_th;
   geometry_msgs::PoseArray np; //number of particles
   std::vector<float> laser_ranges_; //output of lidar_cb()
+  shared_ptr<vector<sensor_msgs::LaserScan>> expectedscans=make_shared<vector<sensor_msgs::LaserScan>>();
 
   int laser_counter_=0;
-  //float angle_min_=0.0,angle_max_=6.28318977,angle_increment_=0.0175019,range_min_=0.119,range_max_=3.5;
 
-//  geometry_msgs::Pose2D pose2d1;
-//  int n=50;
-//  pose2d1.x=-2;
-//  pose2d1.y=-0.5;
-//  pose2d1.theta=0;
-  //cout<<COLOR_GREEN<<"x: "<<pose2d.x<<" , "<<"y: "<<pose2d.y<<COLOR_NORMAL<<endl;
   {
     std::unique_lock<std::mutex> map_lock(map_mut);
     map_cv.wait(map_lock,[this](){return this->map_ready;});
@@ -300,7 +349,6 @@ void localization::estipose(){
     map_ready=false;
   }
 
-
   {
     std::unique_lock<std::mutex> lidar_lock(createmap::lidar_mut);
     createmap::lidar_cv.wait(lidar_lock,[this](){return createmap::lidar_ready;});
@@ -313,20 +361,28 @@ void localization::estipose(){
     laser_counter_=laser_counter;
     createmap::lidar_ready=false;
   }
-  //cout<<"before creating particles"<<endl;
   np=newparticles(pose2d);
-  //cout<<"before publishing particles"<<endl;
+  cout<<"particle size is :"<<np.poses.size()<<endl;
   // in order to publish the point cloud, the transform from grid map to world is necessary
-  sensor_msgs::LaserScan exp_sc=art_lidar(np,lidar_msg,map_th);
-  //cout<<"after publishing particles"<<endl;
-  ros::Rate rate(1); // 10 Hz
-  while (ros::ok())
-  {
-      pub_particles(np);
-      expectedscanner_Pub.publish(exp_sc);
-      //cout<<"particle 0: "<<np.poses.at(0).position.x<<" , "<<np.poses.at(0).position.y<<endl;
+  expectedscans=art_lidar(np,lidar_msg,map_th);
+  cout<<"Expectedscans size is :"<<(*expectedscans).size()<<endl;
+// // cout<<(*expectedscans).at(1).ranges.at(10)<<" , "<<(*expectedscans).at(2).ranges.at(20)<<" , "<<(*expectedscans).at(3).ranges.at(30)<<" , "<<(*expectedscans).at(4).ranges.at(40)<<endl;
+  shared_ptr<vector<double>> q=normalizedlikelihood(expectedscans,lidar_msg);
+  int j=0;
+  for (auto& i:*q) {
+    cout<<"q"<<j<< ": "<<i<<endl;
+    j++;
+  }
+  cout<<"smallest error is: "<<*min_element((*q).begin(),(*q).end())<<", index is : "
+      <<min_element((*q).begin(),(*q).end())-(*q).begin()<<endl;
 
+  ros::Rate rate(1); // 10 Hz
+  while(ros::ok()) {
+      pub_particles(np);
+      pub_bestparticle(np,min_element((*q).begin(),(*q).end())-(*q).begin());
+      expectedscanner_Pub.publish((*expectedscans).at(min_element((*q).begin(),(*q).end())-(*q).begin()));
       rate.sleep();
   }
+//  while(1);
 
 }
