@@ -18,13 +18,20 @@ public:
   geometry_msgs::PoseArray  newparticles(const geometry_msgs::Pose2D &pose2d0, int n);
   void estipose();
   int  findmapindex(geometry_msgs::Pose &pnew);
-
   bool checkcell(geometry_msgs::Pose &pnew);
   // publish particles and check the convergence of the distribution visually by RVIZ.
 
   void pub_particles(geometry_msgs::PoseArray &particlesongridmap);
+  void pub_bestparticle(geometry_msgs::PoseArray &particlesongridmap,const int& particlenumber);
+
   // Publish expected lidar scan or artificial lidar scan per particle to RVIZ to chekc the data visually
-  sensor_msgs::LaserScan art_lidar(geometry_msgs::PoseArray& particle,sensor_msgs::LaserScan& lidar_msg,nav_msgs::OccupancyGrid& map_th);
+
+shared_ptr<vector<sensor_msgs::LaserScan>> art_lidar(geometry_msgs::PoseArray& particle,sensor_msgs::LaserScan& lidar_msg,nav_msgs::OccupancyGrid& map_th);
+shared_ptr<vector<double>> normalizedlikelihood(shared_ptr<vector<sensor_msgs::LaserScan>> expectedscans,sensor_msgs::LaserScan & measurement);
+
+  template<typename T>
+  double calculate_distance(T x1, T y1, T x2, T y2) ;
+
 protected: // in some cases need to inhertence the variables of base class so they should be protected.
   std::mt19937 mt;
   nav_msgs::OccupancyGrid map_;
@@ -41,8 +48,9 @@ protected: // in some cases need to inhertence the variables of base class so th
 private:// in some cases, inhertence of below functions and threads from base class are not allowded,so they should be private.
   std::thread EstimPos_th{&localization::estipose,this}; // "this" keyboard is necessary to use inside the class as object
   // publish particles and check the convergence of the distribution visually by RVIZ.
-  ros::Publisher  particles_pub  =rh.advertise<geometry_msgs::PoseArray>("/particlecloud", 1);
+  ros::Publisher  particles_pub  =rh.advertise<geometry_msgs::PoseArray>("/particlecloud", 100);
   ros::Publisher expectedscanner_Pub=rh.advertise<sensor_msgs::LaserScan>("expected_scanner",1);
+  ros::Publisher  bestparticle_pub  =rh.advertise<geometry_msgs::PoseArray>("/bestparticle", 1);
 
 
   ros::Subscriber odom_sub =createmap::rh.subscribe("/map", 1,&localization::map_cb,this); //new format of subscribing topic in constructer function of a class;
