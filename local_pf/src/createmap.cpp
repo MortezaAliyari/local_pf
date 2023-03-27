@@ -160,6 +160,10 @@ using namespace robot;
         range_min=      laser_msg.range_min;
         range_max=      laser_msg.range_max;
         laser_ranges =  laser_msg.ranges;
+        for (int i=0;i<laser_ranges.size();++i) {
+          if(laser_ranges.at(i)==INFINITY)
+            laser_ranges.at(i)=range_max;
+        }
         laser_counter=laser_msg.header.seq;
        if(  ((1.0/(this->time_elapsed(this->start_lcb,end))))<=4.5)// freq change under 4.5hz!
          throw std::exception();
